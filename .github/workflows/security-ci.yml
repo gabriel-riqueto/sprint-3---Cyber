@@ -25,6 +25,7 @@ jobs:
         uses: returntocorp/semgrep-action@v1
         with:
           config: p/ci
+          args: --sarif --output=semgrep.sarif   #
           generateSarif: "1"
           sarifReport: "semgrep.sarif"
 
