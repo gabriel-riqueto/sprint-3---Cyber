@@ -1,23 +1,31 @@
+// server.js — versão segura
 const express = require('express');
 const helmet = require('helmet');
+
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-app.use(helmet());           // cabeçalhos de segurança
-app.use(express.json());
+// Segurança básica
+app.disable('x-powered-by');                    // oculta a tecnologia
+app.use(helmet());                              // set de cabeçalhos seguros
+app.use(helmet.hsts({ maxAge: 15552000 }));     // HSTS ~180 dias
+app.use(helmet.frameguard({ action: 'deny' })); // bloqueia iframe
+app.use(express.json({ limit: '100kb' }));      // limita payload e já valida JSON
 
+// Health
 app.get('/health', (req, res) => res.json({ ok: true }));
 
-// Endpoint 
+// Home
 app.get('/', (req, res) => {
-  res.send('Teste de SAST/DAST/SCA.');
+  res.send('teste para SAST/DAST/SCA.');
 });
 
-// Endpoint ruim para teste de SAST
+// Endpoint seguro 
 app.post('/echo', (req, res) => {
-  const { input } = req.body || {};
-
-  return res.json({ you_sent: input || null });
+  const input = typeof req.body?.input === 'string'
+    ? req.body.input.slice(0, 200) 
+    : null;
+  return res.json({ you_sent: input });
 });
 
 app.listen(PORT, () => {
