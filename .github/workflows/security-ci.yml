@@ -16,22 +16,27 @@ jobs:
     name: SAST (Semgrep)
     runs-on: ubuntu-latest
     permissions:
-      security-events: write
       contents: read
+      security-events: write
     steps:
       - uses: actions/checkout@v4
+
       - name: Run Semgrep
         uses: returntocorp/semgrep-action@v1
         with:
           config: p/ci
           generateSarif: "1"
           sarifReport: "semgrep.sarif"
+
+      # Envia SEMPRE o SARIF (mesmo se depois falhar no gate)
       - name: Upload SARIF to Code Scanning
         if: always()
         uses: github/codeql-action/upload-sarif@v3
         with:
           sarif_file: semgrep.sarif
           category: semgrep
+
+      # Gate: derruba se houver High/Critical
       - name: Fail on High/Critical
         run: |
           set -e
@@ -45,6 +50,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
       - name: Run OWASP Dependency-Check
         uses: dependency-check/Dependency-Check_Action@main
         with:
@@ -52,11 +58,13 @@ jobs:
           path: "."
           format: "ALL"
           out: "reports"
+
       - name: Publicar relatórios SCA
         uses: actions/upload-artifact@v4
         with:
           name: sca-reports
           path: reports/
+
       - name: Falhar se houver High/Critical
         run: |
           set -e
@@ -76,7 +84,9 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "20.x"
+
       - run: npm ci
+
       - name: Start app in background
         run: |
           nohup npm start >/tmp/app.log 2>&1 &
@@ -84,12 +94,14 @@ jobs:
             curl -sf http://127.0.0.1:3000/health && break || sleep 2
           done
           curl -s http://127.0.0.1:3000/health || (echo "App não respondeu" && exit 1)
+
       - name: ZAP Baseline Scan
         uses: zaproxy/action-baseline@v0.10.0
         with:
           target: "http://127.0.0.1:3000"
           rules_file_name: ".zap/rules.tsv"
           cmd_options: "-a"
+
       - name: Salvar relatório ZAP
         if: always()
         uses: actions/upload-artifact@v4
@@ -98,6 +110,7 @@ jobs:
           path: |
             report_html.html
             owasp_zap.log
+
       - name: Falhar se Medium+
         if: always()
         run: |
@@ -116,7 +129,9 @@ jobs:
       - name: (Opcional) Notificar via Webhook
         run: |
           if [ -n "${{ secrets.SECURITY_WEBHOOK_URL }}" ]; then
-            curl -X POST -H "Content-Type: application/json"                 -d '{"text":"✅ Pipeline seguro aprovado (SAST/SCA/DAST). Pronto para release!"}'                 "${{ secrets.SECURITY_WEBHOOK_URL }}"
+            curl -X POST -H "Content-Type: application/json" \
+              -d '{"text":"✅ Pipeline seguro aprovado (SAST/SCA/DAST). Pronto para release!"}' \
+              "${{ secrets.SECURITY_WEBHOOK_URL }}"
           else
             echo "Webhook não configurado (ok para iniciantes)."
           fi
