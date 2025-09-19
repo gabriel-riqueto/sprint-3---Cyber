@@ -1,5 +1,3 @@
-npm install express-rate-limit --save
-
 {
   "name": "challengexp-security-starter",
   "version": "1.0.0",
