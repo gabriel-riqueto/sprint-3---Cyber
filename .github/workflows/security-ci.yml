@@ -26,10 +26,8 @@ jobs:
         with:
           config: p/ci
           args: --sarif --output=semgrep.sarif   #
-          generateSarif: "1"
-          sarifReport: "semgrep.sarif"
-
-      # Envia SEMPRE o SARIF (mesmo se depois falhar no gate)
+         
+    
       - name: Upload SARIF to Code Scanning
         if: always()
         uses: github/codeql-action/upload-sarif@v3
@@ -37,7 +35,7 @@ jobs:
           sarif_file: semgrep.sarif
           category: semgrep
 
-      # Gate: derruba se houver High/Critical
+   
       - name: Fail on High/Critical
         run: |
           set -e
