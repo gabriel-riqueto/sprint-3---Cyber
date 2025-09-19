@@ -1,35 +1,45 @@
-// server.js — versão segura
 const express = require('express');
 const helmet = require('helmet');
-const helmet = require('helmet');
+const rateLimit = require('express-rate-limit');  
+
+const app = express();
+const PORT = process.env.PORT || 3000;
+
+// Segurança base
+app.disable('x-powered-by');
 app.use(helmet());
+
+
 app.use(helmet.contentSecurityPolicy({
   useDefaults: true,
   directives: { defaultSrc: ["'self'"] }
 }));
 
-const app = express();
-const PORT = process.env.PORT || 3000;
 
-// Segurança básica
-app.disable('x-powered-by');                    // oculta a tecnologia
-app.use(helmet());                              // set de cabeçalhos seguros
-app.use(helmet.hsts({ maxAge: 15552000 }));     // HSTS ~180 dias
-app.use(helmet.frameguard({ action: 'deny' })); // bloqueia iframe
-app.use(express.json({ limit: '100kb' }));      // limita payload e já valida JSON
+app.use(helmet.hsts({ maxAge: 15552000 }));       
+app.use(helmet.frameguard({ action: 'deny' }));   
+app.use(rateLimit({
+  windowMs: 60_000,  
+  max: 60,          
+  standardHeaders: true,
+  legacyHeaders: false
+}));
 
-// Health
+
+app.use(express.json({ limit: '100kb' }));
+
+
 app.get('/health', (req, res) => res.json({ ok: true }));
 
-// Home
 app.get('/', (req, res) => {
-  res.send('teste para SAST/DAST/SCA.');
+  res.send('App seguro para SAST/DAST/SCA.');
 });
 
-// Endpoint seguro 
+
 app.post('/echo', (req, res) => {
-  const input = typeof req.body?.input === 'string'
-    ? req.body.input.slice(0, 200) 
+  const raw = req.body?.input;
+  const input = (typeof raw === 'string')
+    ? raw.replace(/[^\w\s.,-]/g, '').slice(0, 200)
     : null;
   return res.json({ you_sent: input });
 });
