@@ -1,6 +1,12 @@
 // server.js — versão segura
 const express = require('express');
 const helmet = require('helmet');
+const helmet = require('helmet');
+app.use(helmet());
+app.use(helmet.contentSecurityPolicy({
+  useDefaults: true,
+  directives: { defaultSrc: ["'self'"] }
+}));
 
 const app = express();
 const PORT = process.env.PORT || 3000;
