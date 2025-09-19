@@ -7,6 +7,10 @@ on:
     branches: [ "main", "develop" ]
   workflow_dispatch:
 
+permissions:
+  contents: read
+  security-events: write
+
 jobs:
   sast:
     name: SAST (Semgrep)
@@ -23,9 +27,11 @@ jobs:
           generateSarif: "1"
           sarifReport: "semgrep.sarif"
       - name: Upload SARIF to Code Scanning
+        if: always()
         uses: github/codeql-action/upload-sarif@v3
         with:
           sarif_file: semgrep.sarif
+          category: semgrep
       - name: Fail on High/Critical
         run: |
           set -e
