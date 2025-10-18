@@ -90,55 +90,94 @@ jobs:
 
   # DAST 
   dast:
-    name: DAST (OWASP ZAP contra localhost)
-    runs-on: ubuntu-latest
-    needs: [sca]
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-  
-      - name: Set up Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: "20.x"
-  
-      - name: Install deps
-        run: npm ci
-  
-      - name: Start app in background
-        run: |
-          nohup npm start >/tmp/app.log 2>&1 &
-          for i in {1..30}; do
-            curl -sf http://127.0.0.1:3000/health && break || sleep 2
-          done
-          curl -s http://127.0.0.1:3000/health || (echo "App não respondeu" && exit 1)
-
-      - name: ZAP Baseline Scan
-        uses: zaproxy/action-baseline@v0.10.0
-        with:
-          target: "http://127.0.0.1:3000"
-          rules_file_name: ".zap/rules.tsv"
-          cmd_options: "-a"        
-          allow_issue_writing: false 
-  
-      - name: Upload ZAP report artifact
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: zap-scan
-          path: |
-            report_html.html
-            owasp_zap.log
-  
-      - name: Fail pipeline if High/Critical found in report
-        if: always()
-        run: |
-          if grep -E "Risk Level.*(High|Critical)" -i report_html.html; then
-            echo "::error::DAST encontrou achados High/Critical."
-            exit 1
-          else
-            echo "Sem High/Critical no relatório ZAP."
-          fi
+      name: DAST (OWASP ZAP contra localhost)
+      runs-on: ubuntu-latest
+      needs: [sca]
+      steps:
+        - name: Checkout
+          uses: actions/checkout@v4
+    
+        - name: Set up Node
+          uses: actions/setup-node@v4
+          with:
+            node-version: "20.x"
+    
+        - name: Install deps
+          run: npm ci
+    
+        - name: Start app in background
+          run: |
+            nohup npm start >/tmp/app.log 2>&1 &
+            for i in {1..30}; do
+              curl -sf http://127.0.0.1:3000/health && break || sleep 2
+            done
+            # se falhar, mostra log da app antes de sair
+            curl -s http://127.0.0.1:3000/health || (echo "App não respondeu"; echo "==== /tmp/app.log ===="; tail -n 200 /tmp/app.log || true; exit 1)
+    
+        - name: ZAP Baseline Scan
+          uses: zaproxy/action-baseline@v0.10.0
+          continue-on-error: true
+          with:
+            target: "http://127.0.0.1:3000"
+            rules_file_name: ".zap/rules.tsv"
+            cmd_options: "-a"
+            allow_issue_writing: false
+    
+        - name: List files produced by ZAP / workspace
+          if: always()
+          run: |
+            echo "== PWD =="
+            pwd
+            echo "== ls -la =="
+            ls -la || true
+            echo "== find . -maxdepth 2 -type f -name '*.html' -o -name '*zap*' -o -name '*.log' =="
+            find . -maxdepth 2 -type f \( -name "*.html" -o -name "*zap*" -o -name "*.log" \) -print || true
+    
+        - name: Show app log (last 200 lines)
+          if: always()
+          run: |
+            echo "==== tail /tmp/app.log ===="
+            tail -n 200 /tmp/app.log || true
+    
+        - name: Upload ZAP artifacts (best effort)
+          if: always()
+          uses: actions/upload-artifact@v4
+          with:
+            name: zap-scan
+            path: |
+              report_html.html
+              owasp_zap.log
+              ./zap_scan.log
+              ./**/report_html.html
+              ./**/owasp_zap.log
+              ./**/zap*.log
+            if-no-files-found: warn
+            
+        - name: Gate – fail on High/Critical (or missing report)
+          if: always()
+          run: |
+            set -e
+            REPORT=""
+            if [ -f report_html.html ]; then
+              REPORT="report_html.html"
+            else
+              # tenta pegar um html gerado em subpasta
+              CAND=$(find . -maxdepth 2 -type f -name "report_html.html" | head -n 1 || true)
+              if [ -n "$CAND" ]; then REPORT="$CAND"; fi
+            fi
+    
+            if [ -z "$REPORT" ]; then
+              echo "::error::Relatório do ZAP não foi encontrado. Verifique os logs acima (passos 'ZAP Baseline Scan' e 'List files...')."
+              exit 1
+            fi
+    
+            echo "Usando relatório: $REPORT"
+            if grep -E "Risk Level.*(High|Critical)" -i "$REPORT"; then
+              echo "::error::DAST encontrou achados High/Critical."
+              exit 1
+            else
+              echo "Sem High/Critical no relatório ZAP."
+            fi
 
   # Gate final
   release_gate:
