@@ -90,26 +90,21 @@ jobs:
 
   # DAST 
   dast:
-    name: DAST (OWASP ZAP CLI contra localhost)
+    name: DAST (OWASP ZAP contra localhost)
     runs-on: ubuntu-latest
     needs: [sca]
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
+  
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
           node-version: "20.x"
-
-      - name: Set up Python (para zap-cli)
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.x"
-
+  
       - name: Install deps
         run: npm ci
-
+  
       - name: Start app in background
         run: |
           nohup npm start >/tmp/app.log 2>&1 &
@@ -118,89 +113,32 @@ jobs:
           done
           curl -s http://127.0.0.1:3000/health || (echo "App não respondeu" && exit 1)
 
-      - name: Debug:docker pre-check
-        run: |
-          echo "==== Docker version/info ===="
-          docker version || true
-          docker info || true
-          echo "==== Existing containers ===="
-          docker ps -a || true
-
-      - name: Ensure previous zap container removed
-        run: |
-          if docker ps -a --format '{{.Names}}' | grep -q '^owasp-zap$'; then
-            echo "Removing existing owasp-zap container..."
-            docker rm -f owasp-zap || true
-          fi
-
-      - name: Pull latest ZAP image
-        run: |
-          echo "Baixando imagem estável do OWASP ZAP (via GHCR)..."
-          docker pull ghcr.io/zaproxy/zaproxy:stable
-
-      - name: Start ZAP daemon (Docker) - robust
-        run: |
-          set -x
-          docker run -u zap --rm -d --name owasp-zap -p 127.0.0.1:8090:8090 ghcr.io/zaproxy/zaproxy:stable \
-            zap.sh -daemon -port 8090 -host 127.0.0.1 -config api.disablekey=true || (docker ps -a && docker logs owasp-zap || true; exit 1)
-          for i in {1..40}; do
-            if curl -sSf http://127.0.0.1:8090/ > /dev/null 2>&1; then
-              echo "ZAP is responding"
-              break
-            fi
-            sleep 2
-          done
-          echo "ZAP should be ready at http://127.0.0.1:8090"
-
-
-      - name: Install zap-cli
-        run: |
-          python -m pip install --upgrade pip
-          python -m pip install zap-cli
-
-      - name: Run ZAP CLI quick-scan and save report
-        env:
-          ZAP_PORT: 8090
-        run: |
-          set -e
-          echo "Running zap-cli quick-scan (spider + active) ..."
-          timeout 1800 zap-cli --zap-url http://127.0.0.1:8090 quick-scan \
-            --self-contained --start-options "-config api.disablekey=true" \
-            --spider -r zap_report.html http://127.0.0.1:3000 || true
-          if [ -f zap_report.html ]; then
-            echo "ZAP report generated:"
-            ls -l zap_report.html
-          else
-            echo "ZAP report NOT generated; collecting container logs for diagnosis:"
-            docker ps -a || true
-            docker logs owasp-zap || true
-            exit 1
-          fi
-
+      - name: ZAP Baseline Scan
+        uses: zaproxy/action-baseline@v0.10.0
+        with:
+          target: "http://127.0.0.1:3000"
+          rules_file_name: ".zap/rules.tsv"
+          cmd_options: "-a"        
+          allow_issue_writing: false 
+  
       - name: Upload ZAP report artifact
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: zap-scan
-          path: zap_report.html
-
+          path: |
+            report_html.html
+            owasp_zap.log
+  
       - name: Fail pipeline if High/Critical found in report
         if: always()
         run: |
-          if grep -E "(Risk.*High|Risk.*Critical|High risk|Critical risk)" -i zap_report.html; then
+          if grep -E "Risk Level.*(High|Critical)" -i report_html.html; then
             echo "::error::DAST encontrou achados High/Critical."
             exit 1
           else
             echo "Sem High/Critical no relatório ZAP."
           fi
-
-      - name: Debug:docker status and logs (final)
-        if: always()
-        run: |
-          echo "==== docker ps -a ===="
-          docker ps -a || true
-          echo "==== docker logs (owasp-zap) ===="
-          docker logs owasp-zap || echo "no logs for owasp-zap"
 
   # Gate final
   release_gate:
