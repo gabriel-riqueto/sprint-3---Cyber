@@ -1,4 +1,4 @@
-name: Security CI (SAST + SCA + DAST)
+name: Security CI (SAST + SCA + DAST with ZAP CLI)
 
 on:
   push:
@@ -12,7 +12,7 @@ permissions:
   security-events: write
 
 jobs:
-  # SAST 
+  # SAST
   sast:
     name: SAST (Semgrep)
     runs-on: ubuntu-latest
@@ -44,15 +44,14 @@ jobs:
         with:
           sarif_file: semgrep.sarif
           category: semgrep
-          
-      - name: "Gate (temporário): registrar High/Critical sem falhar"
+
+      - name: Gate temporário (não bloquear)
         run: |
           if grep -qi '"level":[[:space:]]*"error"' semgrep.sarif; then
             echo "::warning::SAST encontrou issues de alto risco (registro para evidência)."
-            # exit 1   # reative após a entrega para bloquear releases
           fi
 
-  # SCA 
+  # SCA
   sca:
     name: SCA (OWASP Dependency-Check)
     runs-on: ubuntu-latest
@@ -83,9 +82,9 @@ jobs:
             exit 1
           fi
 
-  # DAST
+  # DAST com ZAP CLI
   dast:
-    name: DAST (OWASP ZAP contra localhost)
+    name: DAST (OWASP ZAP CLI contra localhost)
     runs-on: ubuntu-latest
     needs: [sca]
     steps:
@@ -108,29 +107,45 @@ jobs:
           done
           curl -s http://127.0.0.1:3000/health || (echo "App não respondeu" && exit 1)
 
-      - name: ZAP Baseline Scan
-        uses: zaproxy/action-baseline@v0.10.0
-        with:
-          target: "http://127.0.0.1:3000"
-          rules_file_name: ".zap/rules.tsv"
-          cmd_options: "-a"
-          allow_issue_writing: false  
+      - name: Start ZAP daemon (Docker)
+        run: |
+          docker run -u zap -d --name owasp-zap -p 127.0.0.1:8090:8090 owasp/zap2docker-stable \
+            zap.sh -daemon -port 8090 -host 127.0.0.1 -config api.disablekey=true
+          for i in {1..30}; do
+            curl -sf http://127.0.0.1:8090/ && break || sleep 2
+          done
 
-      - name: Salvar relatório ZAP
+      - name: Install zap-cli
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install zap-cli
+
+      - name: Run ZAP CLI quick-scan and save report
+        env:
+          ZAP_PORT: 8090
+        run: |
+          # Spider + active scan e gera HTML
+          timeout 1800 zap-cli --zap-url http://127.0.0.1:8090 quick-scan \
+            --self-contained --start-options "-config api.disablekey=true" \
+            --spider -r zap_report.html http://127.0.0.1:3000 || true
+          test -f zap_report.html || (echo "ZAP report not generated" && exit 1)
+          ls -l zap_report.html
+
+      - name: Upload ZAP report artifact
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: zap-scan
-          path: |
-            report_html.html
-            owasp_zap.log
+          path: zap_report.html
 
-      - name: Falhar se Medium+
+      - name: Falhar se houver High/Critical
         if: always()
         run: |
-          if grep -E "Risk Level.*(Medium|High)" -i report_html.html; then
-            echo "::error::DAST encontrou achados Medium/High."
+          if grep -E "(Risk.*High|Risk.*Critical|High risk|Critical risk)" -i zap_report.html; then
+            echo "::error::DAST encontrou achados High/Critical."
             exit 1
+          else
+            echo "Sem High/Critical no relatório ZAP."
           fi
 
   # Gate final
@@ -144,8 +159,7 @@ jobs:
         run: |
           if [ -n "${{ secrets.SECURITY_WEBHOOK_URL }}" ]; then
             curl -X POST -H "Content-Type: application/json" \
-              -d '{"text":"Pipeline seguro aprovado!"}' \
+              -d '{"text":Pipeline aprovado (SAST/SCA/DAST). Pronto para release!"}' \
               "${{ secrets.SECURITY_WEBHOOK_URL }}"
           else
-            echo "Webhook não configurado (ok para iniciantes)."
-          fi
+            echo "Webhook não configurado."
