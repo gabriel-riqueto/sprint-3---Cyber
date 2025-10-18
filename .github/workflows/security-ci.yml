@@ -135,6 +135,7 @@ jobs:
 
       - name: Pull latest ZAP image
         run: |
+          echo "Baixando imagem estável do OWASP ZAP..."
           docker pull owasp/zap2docker-stable
 
       - name: Start ZAP daemon (Docker) - robust
