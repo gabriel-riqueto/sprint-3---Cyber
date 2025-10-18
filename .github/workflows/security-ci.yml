@@ -135,15 +135,14 @@ jobs:
 
       - name: Pull latest ZAP image
         run: |
-          echo "Baixando imagem estável do OWASP ZAP..."
-          docker pull owasp/zap2docker-stable
+          echo "Baixando imagem estável do OWASP ZAP (via GHCR)..."
+          docker pull ghcr.io/zaproxy/zaproxy:stable
 
       - name: Start ZAP daemon (Docker) - robust
         run: |
           set -x
-          docker run -u zap --rm -d --name owasp-zap -p 127.0.0.1:8090:8090 owasp/zap2docker-stable \
+          docker run -u zap --rm -d --name owasp-zap -p 127.0.0.1:8090:8090 ghcr.io/zaproxy/zaproxy:stable \
             zap.sh -daemon -port 8090 -host 127.0.0.1 -config api.disablekey=true || (docker ps -a && docker logs owasp-zap || true; exit 1)
-          # wait for ZAP to be ready
           for i in {1..40}; do
             if curl -sSf http://127.0.0.1:8090/ > /dev/null 2>&1; then
               echo "ZAP is responding"
@@ -151,7 +150,8 @@ jobs:
             fi
             sleep 2
           done
-          echo "ZAP should be up at 127.0.0.1:8090"
+          echo "ZAP should be ready at http://127.0.0.1:8090"
+
 
       - name: Install zap-cli
         run: |
